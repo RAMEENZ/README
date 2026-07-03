@@ -12,6 +12,7 @@
   const LEGACY_KEY = "eisenhower.tasks.v1"; // ancien format (tableau simple)
   const THEME_KEY = "eisenhower.theme";
   const SORT_KEY = "eisenhower.sort";
+  const LAYOUT_KEY = "eisenhower.layout.v1";
   const API = "/api/state";
   const POLL_MS = 7000;
   const PUSH_DEBOUNCE = 600;
@@ -87,6 +88,13 @@
       VALID_QUADRANTS.includes(t.quadrant)
     );
   }
+  function normalizeSub(s) {
+    return {
+      id: typeof s.id === "string" ? s.id : uid(),
+      text: String(s.text == null ? "" : s.text),
+      done: !!s.done,
+    };
+  }
   function normalize(t) {
     return {
       id: t.id,
@@ -95,6 +103,9 @@
       done: !!t.done,
       createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
       dueDate: typeof t.dueDate === "string" && t.dueDate ? t.dueDate : null,
+      subtasks: Array.isArray(t.subtasks)
+        ? t.subtasks.filter((s) => s && s.text != null).map(normalizeSub)
+        : [],
     };
   }
   function findTask(id) {
@@ -356,6 +367,32 @@
     touch();
   }
 
+  // ---------- Sous-tâches ----------
+  const expanded = new Set(); // ids des tâches dépliées (état UI, non synchronisé)
+  function addSub(taskId, text) {
+    const t = findTask(taskId);
+    if (!t) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    t.subtasks.push({ id: uid(), text: trimmed, done: false });
+    expanded.add(taskId);
+    touch();
+  }
+  function toggleSub(taskId, subId) {
+    const t = findTask(taskId);
+    if (!t) return;
+    const s = t.subtasks.find((x) => x.id === subId);
+    if (!s) return;
+    s.done = !s.done;
+    touch();
+  }
+  function deleteSub(taskId, subId) {
+    const t = findTask(taskId);
+    if (!t) return;
+    t.subtasks = t.subtasks.filter((x) => x.id !== subId);
+    touch();
+  }
+
   // ---------- Tri / recherche ----------
   function setSort(mode) {
     sortMode = mode;
@@ -419,6 +456,12 @@
       section.appendChild(list);
       matrixEl.appendChild(section);
     });
+    ["v", "h"].forEach((axis) => {
+      const sp = document.createElement("div");
+      sp.className = "matrix__split matrix__split--" + axis;
+      sp.title = "Glisser pour redimensionner · double-clic pour réinitialiser";
+      matrixEl.appendChild(sp);
+    });
   }
 
   function formatDue(dateStr) {
@@ -436,6 +479,45 @@
     const opts = { day: "numeric", month: "short" };
     if (d.getFullYear() !== today.getFullYear()) opts.year = "numeric";
     return d.toLocaleDateString("fr-FR", opts);
+  }
+
+  function makeSubPanel(task) {
+    const panel = document.createElement("div");
+    panel.className = "subtasks";
+    const ul = document.createElement("ul");
+    ul.className = "subtasks__list";
+    task.subtasks.forEach((s) => {
+      const li = document.createElement("li");
+      li.className = "subtask" + (s.done ? " is-done" : "");
+      li.dataset.subId = s.id;
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "subtask__check";
+      cb.checked = s.done;
+      cb.setAttribute("aria-label", "Sous-tâche terminée");
+      const txt = document.createElement("span");
+      txt.className = "subtask__text";
+      txt.textContent = s.text;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "subtask__delete";
+      del.innerHTML = "&times;";
+      del.title = "Supprimer la sous-tâche";
+      del.setAttribute("aria-label", "Supprimer la sous-tâche");
+      li.appendChild(cb);
+      li.appendChild(txt);
+      li.appendChild(del);
+      ul.appendChild(li);
+    });
+    panel.appendChild(ul);
+    const add = document.createElement("input");
+    add.type = "text";
+    add.className = "subtasks__add";
+    add.placeholder = "Ajouter une sous-tâche…";
+    add.maxLength = 200;
+    add.setAttribute("aria-label", "Nouvelle sous-tâche");
+    panel.appendChild(add);
+    return panel;
   }
 
   function makeTaskElement(task) {
@@ -493,7 +575,41 @@
     due.appendChild(dueInput);
 
     body.appendChild(text);
-    body.appendChild(due);
+
+    // Barre méta : échéance + bouton sous-tâches
+    const meta = document.createElement("div");
+    meta.className = "task__meta";
+    meta.appendChild(due);
+
+    const total = task.subtasks.length;
+    const doneN = task.subtasks.filter((s) => s.done).length;
+    const isExpanded = expanded.has(task.id);
+    const subToggle = document.createElement("button");
+    subToggle.type = "button";
+    subToggle.className = "task__subtoggle" + (total ? " has-subs" : "");
+    subToggle.dataset.act = "expand";
+    subToggle.title = total ? "Sous-tâches" : "Ajouter des sous-tâches";
+    subToggle.setAttribute("aria-label", "Sous-tâches");
+    subToggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    subToggle.innerHTML =
+      '<span class="task__subtoggle-icon" aria-hidden="true">☑</span>' +
+      '<span class="task__subcount">' + (total ? doneN + "/" + total : "") + "</span>" +
+      '<span class="task__caret" aria-hidden="true">' + (isExpanded ? "▾" : "▸") + "</span>";
+    meta.appendChild(subToggle);
+    body.appendChild(meta);
+
+    if (total) {
+      const prog = document.createElement("div");
+      prog.className = "task__progress";
+      const fill = document.createElement("div");
+      fill.className = "task__progress-fill";
+      fill.style.width = Math.round((doneN / total) * 100) + "%";
+      if (doneN === total) fill.classList.add("is-complete");
+      prog.appendChild(fill);
+      body.appendChild(prog);
+    }
+
+    if (isExpanded) body.appendChild(makeSubPanel(task));
 
     const del = document.createElement("button");
     del.type = "button";
@@ -781,8 +897,73 @@
     drag = null;
   });
 
+  // ---------- Redimensionnement des quadrants ----------
+  let layout = { rx: 0.5, ry: 0.5 };
+  let splitDrag = null;
+  function loadLayout() {
+    try {
+      const s = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "null");
+      if (s && typeof s.rx === "number" && typeof s.ry === "number") {
+        layout.rx = Math.min(0.8, Math.max(0.2, s.rx));
+        layout.ry = Math.min(0.8, Math.max(0.2, s.ry));
+      }
+    } catch (err) {
+      /* défauts */
+    }
+  }
+  function applyLayout() {
+    matrixEl.style.setProperty("--rx", layout.rx);
+    matrixEl.style.setProperty("--ry", layout.ry);
+  }
+  function saveLayout() {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  }
+
+  matrixEl.addEventListener("pointerdown", (e) => {
+    const sp = e.target.closest(".matrix__split");
+    if (!sp) return;
+    e.preventDefault();
+    splitDrag = {
+      axis: sp.classList.contains("matrix__split--v") ? "x" : "y",
+      pointerId: e.pointerId,
+    };
+    sp.classList.add("is-active");
+    if (sp.setPointerCapture) sp.setPointerCapture(e.pointerId);
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!splitDrag || e.pointerId !== splitDrag.pointerId) return;
+    const r = matrixEl.getBoundingClientRect();
+    if (splitDrag.axis === "x") {
+      layout.rx = Math.min(0.8, Math.max(0.2, (e.clientX - r.left) / r.width));
+    } else {
+      layout.ry = Math.min(0.8, Math.max(0.2, (e.clientY - r.top) / r.height));
+    }
+    applyLayout();
+  });
+  window.addEventListener("pointerup", (e) => {
+    if (!splitDrag || e.pointerId !== splitDrag.pointerId) return;
+    splitDrag = null;
+    matrixEl.querySelectorAll(".matrix__split.is-active").forEach((s) => s.classList.remove("is-active"));
+    saveLayout();
+  });
+  matrixEl.addEventListener("dblclick", (e) => {
+    const sp = e.target.closest(".matrix__split");
+    if (!sp) return;
+    if (sp.classList.contains("matrix__split--v")) layout.rx = 0.5;
+    else layout.ry = 0.5;
+    applyLayout();
+    saveLayout();
+  });
+
   // ---------- Événements sur les tâches (délégation) ----------
   matrixEl.addEventListener("change", (e) => {
+    const subCheck = e.target.closest(".subtask__check");
+    if (subCheck) {
+      const li = subCheck.closest(".task");
+      const sub = subCheck.closest(".subtask");
+      if (li && sub) toggleSub(li.dataset.id, sub.dataset.subId);
+      return;
+    }
     const check = e.target.closest(".task__check");
     if (check) {
       const li = check.closest(".task");
@@ -797,10 +978,52 @@
   });
 
   matrixEl.addEventListener("click", (e) => {
+    const expand = e.target.closest(".task__subtoggle");
+    if (expand) {
+      const li = expand.closest(".task");
+      if (li) {
+        const id = li.dataset.id;
+        if (expanded.has(id)) expanded.delete(id);
+        else expanded.add(id);
+        render();
+        if (expanded.has(id)) {
+          const add = matrixEl.querySelector(
+            '.task[data-id="' + id + '"] .subtasks__add'
+          );
+          if (add) add.focus();
+        }
+      }
+      return;
+    }
+    const subDel = e.target.closest(".subtask__delete");
+    if (subDel) {
+      const li = subDel.closest(".task");
+      const sub = subDel.closest(".subtask");
+      if (li && sub) deleteSub(li.dataset.id, sub.dataset.subId);
+      return;
+    }
     const del = e.target.closest(".task__delete");
-    if (!del) return;
-    const li = del.closest(".task");
-    if (li) deleteTask(li.dataset.id);
+    if (del) {
+      const li = del.closest(".task");
+      if (li) deleteTask(li.dataset.id);
+    }
+  });
+
+  // Ajout d'une sous-tâche (Entrée dans le champ dédié)
+  matrixEl.addEventListener("keydown", (e) => {
+    const add = e.target.closest(".subtasks__add");
+    if (!add) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const li = add.closest(".task");
+      if (!li) return;
+      const id = li.dataset.id;
+      addSub(id, add.value);
+      const next = matrixEl.querySelector('.task[data-id="' + id + '"] .subtasks__add');
+      if (next) next.focus();
+    } else if (e.key === "Escape") {
+      add.blur();
+    }
   });
 
   matrixEl.addEventListener("blur", (e) => {
@@ -900,6 +1123,8 @@
 
   // ---------- Démarrage ----------
   buildSkeleton();
+  loadLayout();
+  applyLayout();
   loadLocal();
   applyTheme();
   setSort(sortMode);

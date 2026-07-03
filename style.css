@@ -328,12 +328,78 @@ body {
 }
 
 .matrix {
+  --gutter: 14px;
+  --rx: 0.5;
+  --ry: 0.5;
   grid-column: 2;
   grid-row: 2;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 14px;
+  grid-template-columns:
+    calc((100% - var(--gutter)) * var(--rx)) var(--gutter)
+    calc((100% - var(--gutter)) * (1 - var(--rx)));
+  grid-template-rows:
+    calc((100% - var(--gutter)) * var(--ry)) var(--gutter)
+    calc((100% - var(--gutter)) * (1 - var(--ry)));
+  gap: 0;
+}
+
+.quadrant[data-q="q1"] { grid-column: 1; grid-row: 1; }
+.quadrant[data-q="q2"] { grid-column: 3; grid-row: 1; }
+.quadrant[data-q="q3"] { grid-column: 1; grid-row: 3; }
+.quadrant[data-q="q4"] { grid-column: 3; grid-row: 3; }
+
+.matrix__split {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  z-index: 3;
+}
+
+.matrix__split--v {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  cursor: col-resize;
+}
+
+.matrix__split--h {
+  grid-row: 2;
+  grid-column: 1 / span 3;
+  cursor: row-resize;
+}
+
+.matrix__split::before {
+  content: "";
+  position: absolute;
+  background: var(--border);
+  border-radius: 999px;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.matrix__split--v::before {
+  width: 3px;
+  height: 44px;
+}
+
+.matrix__split--h::before {
+  height: 3px;
+  width: 44px;
+}
+
+.matrix__split:hover::before,
+.matrix__split.is-active::before {
+  background: var(--focus);
+}
+
+.matrix__split--v:hover::before,
+.matrix__split--v.is-active::before {
+  transform: scaleY(1.5);
+}
+
+.matrix__split--h:hover::before,
+.matrix__split--h.is-active::before {
+  transform: scaleX(1.5);
 }
 
 .quadrant {
@@ -661,6 +727,170 @@ body {
   background: color-mix(in srgb, var(--q-soft) 70%, transparent);
 }
 
+/* ---------- Sous-tâches ---------- */
+.task__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task__subtoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 8px;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.task__subtoggle.has-subs {
+  opacity: 1;
+  border-color: var(--border);
+}
+
+.task:hover .task__subtoggle {
+  opacity: 0.9;
+}
+
+.task__subtoggle:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--focus) 40%, var(--border));
+}
+
+.task__subtoggle-icon {
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.task__subcount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.task__caret {
+  font-size: 0.6rem;
+  opacity: 0.7;
+}
+
+.task__progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.task__progress-fill {
+  height: 100%;
+  background: var(--q-color, var(--focus));
+  border-radius: inherit;
+  transition: width 0.25s ease;
+}
+
+.subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  margin-top: 2px;
+  border-top: 1px dashed var(--border);
+}
+
+.subtasks__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subtask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  font-size: 0.85rem;
+}
+
+.subtask__check {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--text-muted);
+  border-radius: 5px;
+  cursor: pointer;
+  position: relative;
+}
+
+.subtask__check:checked {
+  background: var(--q-color, var(--focus));
+  border-color: var(--q-color, var(--focus));
+}
+
+.subtask__check:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.subtask__text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.subtask.is-done .subtask__text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.subtask__delete {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 4px;
+  opacity: 0.5;
+  border-radius: 5px;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.subtask__delete:hover {
+  opacity: 1;
+  color: var(--q1);
+}
+
+.subtasks__add {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+
 /* ---------- Fantôme de drag ---------- */
 .drag-ghost {
   position: fixed;
@@ -791,6 +1021,16 @@ body {
     grid-row: auto;
     grid-template-columns: 1fr;
     grid-template-rows: none;
+    gap: 12px;
+  }
+
+  .matrix > .quadrant {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .matrix__split {
+    display: none;
   }
 
   .app-footer {
