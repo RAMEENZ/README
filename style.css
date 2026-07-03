@@ -780,6 +780,46 @@ body {
   opacity: 0.7;
 }
 
+.task__repeat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 8px;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.task__repeat.is-on {
+  opacity: 1;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.task:hover .task__repeat {
+  opacity: 0.9;
+}
+
+.task__repeat:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--focus) 40%, var(--border));
+}
+
+.task__repeat-icon {
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.task__repeat-label:empty {
+  display: none;
+}
+
 .task__progress {
   height: 4px;
   border-radius: 999px;

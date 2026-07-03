@@ -25,6 +25,8 @@
     { id: "q4", action: "Éliminer", label: "Ni urgent ni important", emoji: "🗑️" },
   ];
   const VALID_QUADRANTS = QUADRANTS.map((q) => q.id);
+  const REPEATS = ["none", "daily", "weekly", "monthly"];
+  const REPEAT_LABEL = { none: "", daily: "Quotidien", weekly: "Hebdo", monthly: "Mensuel" };
 
   // ---------- État ----------
   let tasks = [];
@@ -103,10 +105,39 @@
       done: !!t.done,
       createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
       dueDate: typeof t.dueDate === "string" && t.dueDate ? t.dueDate : null,
+      repeat: REPEATS.includes(t.repeat) ? t.repeat : "none",
       subtasks: Array.isArray(t.subtasks)
         ? t.subtasks.filter((s) => s && s.text != null).map(normalizeSub)
         : [],
     };
+  }
+
+  // Prochaine occurrence (strictement dans le futur) pour une récurrence.
+  function advanceDate(iso, repeat) {
+    if (repeat === "none") return iso;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let d;
+    if (iso) {
+      const p = iso.split("-");
+      d = new Date(+p[0], +p[1] - 1, +p[2]);
+    } else {
+      d = new Date(today);
+    }
+    d.setHours(0, 0, 0, 0);
+    do {
+      if (repeat === "daily") d.setDate(d.getDate() + 1);
+      else if (repeat === "weekly") d.setDate(d.getDate() + 7);
+      else if (repeat === "monthly") d.setMonth(d.getMonth() + 1);
+      else break;
+    } while (d <= today);
+    return (
+      d.getFullYear() +
+      "-" +
+      String(d.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(d.getDate()).padStart(2, "0")
+    );
   }
   function findTask(id) {
     return tasks.find((t) => t.id === id);
@@ -311,7 +342,23 @@
   function toggleTask(id) {
     const t = findTask(id);
     if (!t) return;
+    // Compléter une tâche récurrente => on la reprogramme plutôt que de la
+    // marquer terminée (les sous-tâches sont réinitialisées).
+    if (!t.done && t.repeat && t.repeat !== "none") {
+      t.dueDate = advanceDate(t.dueDate, t.repeat);
+      t.subtasks.forEach((s) => (s.done = false));
+      t.done = false;
+      touch();
+      notify("🔁 Reprogrammée au " + formatDue(t.dueDate));
+      return;
+    }
     t.done = !t.done;
+    touch();
+  }
+  function cycleRepeat(id) {
+    const t = findTask(id);
+    if (!t) return;
+    t.repeat = REPEATS[(REPEATS.indexOf(t.repeat) + 1) % REPEATS.length];
     touch();
   }
   function deleteTask(id) {
@@ -580,6 +627,19 @@
     const meta = document.createElement("div");
     meta.className = "task__meta";
     meta.appendChild(due);
+
+    const rep = document.createElement("button");
+    rep.type = "button";
+    rep.className = "task__repeat" + (task.repeat !== "none" ? " is-on" : "");
+    rep.dataset.act = "repeat";
+    rep.title =
+      task.repeat !== "none"
+        ? "Récurrence : " + REPEAT_LABEL[task.repeat] + " (cliquer pour changer)"
+        : "Rendre récurrente";
+    rep.innerHTML =
+      '<span class="task__repeat-icon" aria-hidden="true">🔁</span>' +
+      '<span class="task__repeat-label">' + REPEAT_LABEL[task.repeat] + "</span>";
+    meta.appendChild(rep);
 
     const total = task.subtasks.length;
     const doneN = task.subtasks.filter((s) => s.done).length;
@@ -978,6 +1038,12 @@
   });
 
   matrixEl.addEventListener("click", (e) => {
+    const repBtn = e.target.closest(".task__repeat");
+    if (repBtn) {
+      const li = repBtn.closest(".task");
+      if (li) cycleRepeat(li.dataset.id);
+      return;
+    }
     const expand = e.target.closest(".task__subtoggle");
     if (expand) {
       const li = expand.closest(".task");
@@ -1058,10 +1124,112 @@
     }
   });
 
+  // ---------- Dates en langage naturel ----------
+  const WEEKDAYS = {
+    dimanche: 0, lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6,
+  };
+  const MONTHS = {
+    janvier: 0, janv: 0, jan: 0, "février": 1, fevrier: 1, "févr": 1, fevr: 1,
+    mars: 2, avril: 3, avr: 3, mai: 4, juin: 5, juillet: 6, juil: 6,
+    "août": 7, aout: 7, septembre: 8, sept: 8, sep: 8, octobre: 9, oct: 9,
+    novembre: 10, nov: 10, "décembre": 11, decembre: 11, "déc": 11, dec: 11,
+  };
+  function toIsoDate(d) {
+    return (
+      d.getFullYear() +
+      "-" +
+      String(d.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(d.getDate()).padStart(2, "0")
+    );
+  }
+  /** Extrait une date du texte. Renvoie {dueDate, text} (text nettoyé). */
+  function parseNaturalDate(text) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let due = null;
+    let re = null;
+
+    const rel = [
+      [/\baujourd'?hui\b/i, 0],
+      [/\bapr[eè]s[-\s]?demain\b/i, 2],
+      [/\bdemain\b/i, 1],
+    ];
+    for (const [rx, off] of rel) {
+      if (rx.test(text)) {
+        due = new Date(today);
+        due.setDate(due.getDate() + off);
+        re = rx;
+        break;
+      }
+    }
+    if (!due) {
+      const m = text.match(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/i);
+      if (m) {
+        const target = WEEKDAYS[m[1].toLowerCase()];
+        due = new Date(today);
+        let diff = (target - due.getDay() + 7) % 7;
+        if (diff === 0) diff = 7; // « lundi » = le prochain lundi
+        due.setDate(due.getDate() + diff);
+        re = new RegExp("\\b" + m[1] + "\\b", "i");
+      }
+    }
+    if (!due) {
+      const m = text.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/);
+      if (m) {
+        const day = +m[1];
+        const mon = +m[2] - 1;
+        let yr = m[3] ? +m[3] : today.getFullYear();
+        if (m[3] && m[3].length === 2) yr += 2000;
+        let d = new Date(yr, mon, day);
+        d.setHours(0, 0, 0, 0);
+        if (!m[3] && d < today) d = new Date(yr + 1, mon, day);
+        if (d.getMonth() === mon && d.getDate() === day) {
+          due = d;
+          re = new RegExp(m[0].replace(/[./-]/g, "[\\/.\\-]"));
+        }
+      }
+    }
+    if (!due) {
+      const m = text.match(/\b(\d{1,2})\s+([a-zà-ÿ]+)\.?\b/i);
+      if (m && MONTHS[m[2].toLowerCase()] !== undefined) {
+        const day = +m[1];
+        const mon = MONTHS[m[2].toLowerCase()];
+        let d = new Date(today.getFullYear(), mon, day);
+        d.setHours(0, 0, 0, 0);
+        if (d < today) d = new Date(today.getFullYear() + 1, mon, day);
+        if (d.getDate() === day) {
+          due = d;
+          re = new RegExp(m[0].replace(/\./g, "\\.?"), "i");
+        }
+      }
+    }
+    if (!due) return { dueDate: null, text: text };
+
+    let cleaned = text
+      .replace(re, " ")
+      .replace(/\s{2,}/g, " ")
+      .replace(/\s+(le|pour|avant|d[’']?ici|à)\s*$/i, "")
+      .replace(/[,\s]+$/g, "")
+      .trim();
+    if (!cleaned) cleaned = text.replace(re, " ").replace(/\s{2,}/g, " ").trim();
+    return { dueDate: toIsoDate(due), text: cleaned };
+  }
+
   // ---------- Formulaire, contrôles, pied de page ----------
   formEl.addEventListener("submit", (e) => {
     e.preventDefault();
-    addTask(inputEl.value, quadrantSelectEl.value, dueEl.value);
+    let text = inputEl.value;
+    let due = dueEl.value;
+    // Si aucune date choisie explicitement, on tente de la déduire du texte.
+    if (!due) {
+      const parsed = parseNaturalDate(text);
+      if (parsed.dueDate) {
+        due = parsed.dueDate;
+        text = parsed.text;
+      }
+    }
+    addTask(text, quadrantSelectEl.value, due);
     inputEl.value = "";
     dueEl.value = "";
     inputEl.focus();

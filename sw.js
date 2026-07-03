@@ -2,7 +2,7 @@
    - Précache la « coquille » de l'appli pour un fonctionnement hors-ligne.
    - Ne met JAMAIS en cache l'API /api/state (toujours réseau).
    Incrémente CACHE_VERSION à chaque changement de fichier statique. */
-const CACHE_VERSION = "eisenhower-v4";
+const CACHE_VERSION = "eisenhower-v5";
 const SHELL = [
   "./",
   "./index.html",

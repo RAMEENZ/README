@@ -43,6 +43,10 @@ from socketserver import ThreadingMixIn
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("EISENHOWER_DATA", os.path.join(ROOT, "data"))
 DATA_FILE = os.path.join(DATA_DIR, "state.json")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "14"))  # jours de rétention
+MAX_BODY = 4 * 1024 * 1024  # 4 Mo : taille max d'une requête API
+MAX_TASKS = 10000  # garde-fou
 PORT = int(os.environ.get("PORT", "8000"))
 BIND = os.environ.get("BIND", "127.0.0.1")
 
@@ -71,6 +75,28 @@ def save_state(state):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, DATA_FILE)  # remplacement atomique
+
+
+def maybe_backup(state):
+    """Écrit une sauvegarde datée (une par jour) et purge les anciennes."""
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        path = os.path.join(BACKUP_DIR, "state-{}.json".format(date.today().isoformat()))
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, separators=(",", ":"))
+            snaps = sorted(
+                fn
+                for fn in os.listdir(BACKUP_DIR)
+                if fn.startswith("state-") and fn.endswith(".json")
+            )
+            for fn in snaps[: max(0, len(snaps) - BACKUP_KEEP)]:
+                try:
+                    os.remove(os.path.join(BACKUP_DIR, fn))
+                except OSError:
+                    pass
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +290,9 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         length = int(self.headers.get("Content-Length", "0") or "0")
+        if length > MAX_BODY:
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "payload too large"})
+            return
         raw = self.rfile.read(length) if length else b"{}"
         try:
             incoming = json.loads(raw.decode("utf-8"))
@@ -272,6 +301,9 @@ class Handler(SimpleHTTPRequestHandler):
                 raise ValueError("tasks must be a list")
         except (ValueError, KeyError, UnicodeDecodeError):
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid payload"})
+            return
+        if len(tasks) > MAX_TASKS:
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too many tasks"})
             return
 
         with _lock:
@@ -288,6 +320,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "updatedAt": int(time.time() * 1000),
             }
             save_state(new_state)
+            maybe_backup(new_state)
             self._send_json(HTTPStatus.OK, new_state)
 
     def log_message(self, *args):
