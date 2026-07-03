@@ -416,6 +416,11 @@ body {
   border-radius: 999px;
   min-width: 26px;
   text-align: center;
+  transition: opacity 0.2s ease;
+}
+
+.quadrant__count.is-zero {
+  opacity: 0.4;
 }
 
 .quadrant__list {
@@ -541,9 +546,29 @@ body {
   border-radius: 4px;
 }
 
+.task.is-done {
+  opacity: 0.68;
+}
+
 .task.is-done .task__text {
   text-decoration: line-through;
   color: var(--text-muted);
+}
+
+/* Apparition d'une tâche nouvellement ajoutée */
+@keyframes taskPop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.task--enter {
+  animation: taskPop 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
 /* Puce d'échéance : l'input date natif couvre la puce (invisible) */
@@ -737,6 +762,17 @@ body {
   border: none;
   cursor: pointer;
   padding: 2px 4px;
+}
+
+/* ---------- Accessibilité : mouvement réduit ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 /* ---------- Responsive ---------- */

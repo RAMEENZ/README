@@ -33,6 +33,7 @@
   let syncMode = "local"; // "local" | "online" | "offline"
   let searchQuery = "";
   let sortMode = localStorage.getItem(SORT_KEY) || "manual";
+  let lastAddedId = null; // pour l'animation d'apparition
 
   let pushTimer = null;
   let pushing = false;
@@ -284,16 +285,16 @@
   function addTask(text, quadrant, dueDate) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    tasks.push(
-      normalize({
-        id: uid(),
-        text: trimmed,
-        quadrant: VALID_QUADRANTS.includes(quadrant) ? quadrant : "q1",
-        done: false,
-        createdAt: Date.now(),
-        dueDate: dueDate || null,
-      })
-    );
+    const t = normalize({
+      id: uid(),
+      text: trimmed,
+      quadrant: VALID_QUADRANTS.includes(quadrant) ? quadrant : "q1",
+      done: false,
+      createdAt: Date.now(),
+      dueDate: dueDate || null,
+    });
+    tasks.push(t);
+    lastAddedId = t.id;
     touch();
   }
   function toggleTask(id) {
@@ -381,7 +382,8 @@
     } else if (sortMode === "alpha") {
       arr.sort((a, b) => a.text.localeCompare(b.text, "fr", { sensitivity: "base" }));
     }
-    return arr;
+    // Les tâches terminées descendent toujours en bas (ordre stable).
+    return arr.filter((t) => !t.done).concat(arr.filter((t) => t.done));
   }
   function bakeCurrentOrder() {
     const next = [];
@@ -423,12 +425,26 @@
     const parts = dateStr.split("-");
     if (parts.length !== 3) return dateStr;
     const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
-    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.round((d - today) / 86400000);
+    if (diff === 0) return "auj.";
+    if (diff === 1) return "demain";
+    if (diff === -1) return "hier";
+    if (diff > 1 && diff <= 7) return "dans " + diff + " j";
+    if (diff < -1 && diff >= -7) return "il y a " + -diff + " j";
+    const opts = { day: "numeric", month: "short" };
+    if (d.getFullYear() !== today.getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString("fr-FR", opts);
   }
 
   function makeTaskElement(task) {
     const li = document.createElement("li");
-    li.className = "task" + (task.done ? " is-done" : "") + (isOverdue(task) ? " is-overdue" : "");
+    li.className =
+      "task" +
+      (task.done ? " is-done" : "") +
+      (isOverdue(task) ? " is-overdue" : "") +
+      (task.id === lastAddedId ? " task--enter" : "");
     li.dataset.id = task.id;
 
     const handle = document.createElement("span");
@@ -509,7 +525,9 @@
         shown.forEach((t) => list.appendChild(makeTaskElement(t)));
       }
       countEl.textContent = String(all.length);
+      countEl.classList.toggle("is-zero", all.length === 0);
     });
+    lastAddedId = null; // l'animation ne joue qu'une fois
     renderStats();
   }
 
@@ -792,6 +810,17 @@
     if (li) editTask(li.dataset.id, text.textContent);
   }, true);
 
+  // Collage en texte brut (évite d'injecter du HTML mis en forme).
+  matrixEl.addEventListener("paste", (e) => {
+    const text = e.target.closest(".task__text");
+    if (!text) return;
+    e.preventDefault();
+    const plain = ((e.clipboardData || window.clipboardData).getData("text/plain") || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    document.execCommand("insertText", false, plain);
+  });
+
   matrixEl.addEventListener("keydown", (e) => {
     const text = e.target.closest(".task__text");
     if (!text) return;
@@ -827,6 +856,13 @@
   searchEl.addEventListener("input", () => {
     searchQuery = searchEl.value.trim().toLowerCase();
     render();
+  });
+  searchEl.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && searchEl.value) {
+      searchEl.value = "";
+      searchQuery = "";
+      render();
+    }
   });
   sortEl.addEventListener("change", () => {
     setSort(sortEl.value);
