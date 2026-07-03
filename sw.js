@@ -2,7 +2,7 @@
    - Précache la « coquille » de l'appli pour un fonctionnement hors-ligne.
    - Ne met JAMAIS en cache l'API /api/state (toujours réseau).
    Incrémente CACHE_VERSION à chaque changement de fichier statique. */
-const CACHE_VERSION = "eisenhower-v2";
+const CACHE_VERSION = "eisenhower-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -40,19 +40,26 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;
   if (request.method !== "GET") return;
 
-  // Coquille statique : cache d'abord, réseau en secours (et on met à jour).
+  // Coquille statique : réseau d'abord (fraîcheur garantie après chaque
+  // déploiement), cache en secours pour le hors-ligne. Évite les pages
+  // « mélangées » (nouveau HTML + vieux CSS) après une mise à jour.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((resp) => {
-          if (resp && resp.status === 200 && resp.type === "basic") {
-            const copy = resp.clone();
-            caches.open(CACHE_VERSION).then((c) => c.put(request, copy));
-          }
-          return resp;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(request)
+      .then((resp) => {
+        if (resp && resp.status === 200 && resp.type === "basic") {
+          const copy = resp.clone();
+          caches.open(CACHE_VERSION).then((c) => c.put(request, copy));
+        }
+        return resp;
+      })
+      .catch(() =>
+        caches.match(request).then(
+          (cached) =>
+            cached ||
+            (request.mode === "navigate"
+              ? caches.match("./index.html")
+              : Response.error())
+        )
+      )
   );
 });
