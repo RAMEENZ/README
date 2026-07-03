@@ -1,0 +1,17 @@
+{
+  "name": "Matrice d'Eisenhower",
+  "short_name": "Eisenhower",
+  "description": "Organiseur de tâches basé sur la matrice d'Eisenhower : priorisez selon l'urgence et l'importance.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f5f7",
+  "theme_color": "#3b82f6",
+  "icons": [
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ]
+}

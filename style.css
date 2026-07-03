@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f4f5f7;
   --surface: #ffffff;
   --surface-2: #fafbfc;
@@ -22,8 +23,12 @@
   --focus: #3b82f6;
 }
 
+/* Variables du thème sombre (facteur commun) appliquées :
+   - automatiquement si le système est sombre (sauf thème « clair » forcé) ;
+   - manuellement via [data-theme="dark"]. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #0f1115;
     --surface: #181b21;
     --surface-2: #1f232b;
@@ -37,6 +42,22 @@
     --q3-soft: #2e2410;
     --q4-soft: #23262d;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --surface: #181b21;
+  --surface-2: #1f232b;
+  --text: #e7e9ee;
+  --text-muted: #9aa1ac;
+  --border: #2a2f38;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --q1-soft: #2c1618;
+  --q2-soft: #14243f;
+  --q3-soft: #2e2410;
+  --q4-soft: #23262d;
 }
 
 * {
@@ -69,6 +90,10 @@ body {
 .app-header__inner {
   max-width: 1100px;
   margin: 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .app-title {
@@ -82,6 +107,30 @@ body {
   margin: 4px 0 0;
   color: var(--text-muted);
   font-size: 0.95rem;
+}
+
+.icon-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1.15rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.icon-btn:hover {
+  background: var(--surface-2);
+}
+
+.icon-btn:active {
+  transform: translateY(1px);
 }
 
 .app-toolbar {
@@ -106,8 +155,9 @@ body {
   font-size: 0.95rem;
 }
 
+.add-form__date,
 .add-form__select {
-  flex: 0 1 220px;
+  flex: 0 1 auto;
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -118,11 +168,68 @@ body {
 }
 
 .add-form__input:focus-visible,
+.add-form__date:focus-visible,
 .add-form__select:focus-visible,
+.controls__search-field:focus-visible,
+.controls__sort select:focus-visible,
+.icon-btn:focus-visible,
 .btn:focus-visible,
 .task__text:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* ---------- Barre de contrôles (recherche + tri) ---------- */
+.controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.controls__search {
+  flex: 1 1 220px;
+  position: relative;
+  min-width: 0;
+}
+
+.controls__search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.85rem;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.controls__search-field {
+  width: 100%;
+  padding: 9px 14px 9px 34px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.controls__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.controls__sort select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
 }
 
 /* ---------- Boutons ---------- */
@@ -262,6 +369,10 @@ body {
   border-radius: 10px;
 }
 
+.task.is-overdue {
+  border-color: color-mix(in srgb, var(--q1) 45%, var(--border));
+}
+
 .task.is-dragging {
   opacity: 0.4;
 }
@@ -320,8 +431,15 @@ body {
   transform: rotate(45deg);
 }
 
-.task__text {
+.task__body {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.task__text {
   font-size: 0.92rem;
   word-break: break-word;
   border: none;
@@ -335,6 +453,45 @@ body {
 .task.is-done .task__text {
   text-decoration: line-through;
   color: var(--text-muted);
+}
+
+/* Puce d'échéance : l'input date natif couvre la puce (invisible) */
+.task__due {
+  position: relative;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.task__due-icon {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.task__due.is-overdue {
+  color: var(--q1);
+  border-color: color-mix(in srgb, var(--q1) 45%, var(--border));
+  background: var(--q1-soft);
+  font-weight: 600;
+}
+
+.task__due-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
 }
 
 .task__delete {
@@ -355,6 +512,15 @@ body {
   opacity: 1;
   color: var(--q1);
   background: var(--q1-soft);
+}
+
+/* Emplacement d'insertion pendant un glisser */
+.task-placeholder {
+  height: 42px;
+  border: 2px dashed var(--q-color, var(--border));
+  border-radius: 10px;
+  background: var(--q-soft);
+  opacity: 0.8;
 }
 
 /* ---------- Fantôme de drag ---------- */
@@ -393,6 +559,19 @@ body {
   flex-wrap: wrap;
 }
 
+.app-footer__info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.app-footer__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .stats {
   color: var(--text-muted);
   font-size: 0.88rem;
@@ -402,9 +581,66 @@ body {
   color: var(--text);
 }
 
+.stats__overdue {
+  color: var(--q1) !important;
+}
+
+.sync-status {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sync-status.is-online { color: #16a34a; }
+.sync-status.is-syncing { color: var(--q3); }
+.sync-status.is-offline { color: var(--q1); }
+.sync-status.is-local { color: var(--text-muted); }
+
+/* ---------- Toast (undo / notifications) ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--text);
+  color: var(--bg);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  font-size: 0.88rem;
+  max-width: calc(100vw - 32px);
+}
+
+.toast[hidden] {
+  display: none;
+}
+
+.toast__btn {
+  font: inherit;
+  font-weight: 700;
+  color: var(--q3);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 720px) {
   .matrix {
     grid-template-columns: 1fr;
+  }
+
+  .app-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .app-footer__actions .btn {
+    flex: 1;
   }
 }
