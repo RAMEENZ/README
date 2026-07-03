@@ -17,8 +17,8 @@
   <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)" />
 </head>
 <body>
-  <header class="app-header">
-    <div class="app-header__inner">
+  <div class="page">
+    <header class="app-header">
       <div class="app-header__titles">
         <h1 class="app-title">Matrice d'Eisenhower</h1>
         <p class="app-subtitle">Priorisez vos tâches selon leur urgence et leur importance.</p>
@@ -26,9 +26,9 @@
       <button type="button" class="icon-btn" id="theme-toggle" title="Changer de thème" aria-label="Changer de thème">
         <span id="theme-icon" aria-hidden="true">🌓</span>
       </button>
-    </div>
+    </header>
 
-    <div class="app-toolbar">
+    <section class="panel">
       <form id="add-form" class="add-form" autocomplete="off">
         <input
           id="task-input"
@@ -47,10 +47,10 @@
           title="Date d'échéance (optionnelle)"
         />
         <select id="quadrant-select" class="add-form__select" aria-label="Quadrant de destination">
-          <option value="q1">Urgent &amp; Important</option>
-          <option value="q2">Important, pas urgent</option>
-          <option value="q3">Urgent, pas important</option>
-          <option value="q4">Ni urgent ni important</option>
+          <option value="q1">🔥 Urgent &amp; Important</option>
+          <option value="q2">📅 Important, pas urgent</option>
+          <option value="q3">🤝 Urgent, pas important</option>
+          <option value="q4">🗑️ Ni urgent ni important</option>
         </select>
         <button type="submit" class="btn btn--primary">Ajouter</button>
       </form>
@@ -62,12 +62,12 @@
             id="search-input"
             class="controls__search-field"
             type="search"
-            placeholder="Rechercher… ( / )"
+            placeholder="Rechercher…  ( / )"
             aria-label="Rechercher une tâche"
           />
         </div>
         <label class="controls__sort">
-          <span>Tri</span>
+          <span>Trier&nbsp;:</span>
           <select id="sort-select" aria-label="Trier les tâches">
             <option value="manual">Manuel</option>
             <option value="due">Échéance</option>
@@ -76,24 +76,34 @@
           </select>
         </label>
       </div>
-    </div>
-  </header>
+    </section>
 
-  <main class="matrix" id="matrix" aria-label="Matrice d'Eisenhower">
-    <!-- Les quadrants sont générés par app.js -->
-  </main>
+    <div class="matrix-area">
+      <div class="axis axis--x" aria-hidden="true">
+        <span>Urgent</span>
+        <span>Pas urgent</span>
+      </div>
+      <div class="axis axis--y" aria-hidden="true">
+        <span>Important</span>
+        <span>Pas important</span>
+      </div>
+      <main class="matrix" id="matrix" aria-label="Matrice d'Eisenhower">
+        <!-- Les quadrants sont générés par app.js -->
+      </main>
+    </div>
 
-  <footer class="app-footer">
-    <div class="app-footer__info">
-      <div class="stats" id="stats" aria-live="polite"></div>
-      <span class="sync-status" id="sync-status" title="État de la synchronisation"></span>
-    </div>
-    <div class="app-footer__actions">
-      <button type="button" class="btn btn--ghost" id="export-btn">Exporter</button>
-      <button type="button" class="btn btn--ghost" id="import-btn">Importer</button>
-      <button type="button" class="btn btn--ghost" id="clear-done">Effacer les terminées</button>
-    </div>
-  </footer>
+    <footer class="app-footer">
+      <div class="app-footer__info">
+        <div class="stats" id="stats" aria-live="polite"></div>
+        <span class="sync-status" id="sync-status" title="État de la synchronisation"></span>
+      </div>
+      <div class="app-footer__actions">
+        <button type="button" class="btn btn--ghost" id="export-btn">Exporter</button>
+        <button type="button" class="btn btn--ghost" id="import-btn">Importer</button>
+        <button type="button" class="btn btn--ghost" id="clear-done">Effacer les terminées</button>
+      </div>
+    </footer>
+  </div>
 
   <input type="file" id="import-file" accept="application/json,.json" hidden />
   <div id="drag-ghost" class="drag-ghost" aria-hidden="true"></div>

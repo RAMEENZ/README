@@ -18,10 +18,10 @@
   const DRAG_THRESHOLD = 6;
 
   const QUADRANTS = [
-    { id: "q1", action: "Faire", label: "Urgent & Important" },
-    { id: "q2", action: "Planifier", label: "Important, pas urgent" },
-    { id: "q3", action: "Déléguer", label: "Urgent, pas important" },
-    { id: "q4", action: "Éliminer", label: "Ni urgent ni important" },
+    { id: "q1", action: "Faire", label: "Urgent & Important", emoji: "🔥" },
+    { id: "q2", action: "Planifier", label: "Important, pas urgent", emoji: "📅" },
+    { id: "q3", action: "Déléguer", label: "Urgent, pas important", emoji: "🤝" },
+    { id: "q4", action: "Éliminer", label: "Ni urgent ni important", emoji: "🗑️" },
   ];
   const VALID_QUADRANTS = QUADRANTS.map((q) => q.id);
 
@@ -243,9 +243,13 @@
       } else {
         adoptServer(s);
       }
-    } else if (serverVersion > version && !dirty) {
-      adoptServer(s);
     } else if (dirty) {
+      pushServer();
+    } else if (serverVersion > version) {
+      adoptServer(s);
+    } else if (serverVersion < version) {
+      // Le serveur a « régressé » (données réinitialisées ?) : on restaure
+      // depuis le local plutôt que de tout perdre.
       pushServer();
     } else {
       adoptServer(s);
@@ -266,7 +270,9 @@
         return;
       }
       syncMode = "online";
-      if ((s.version || 0) !== version) {
+      // On ne se met à jour que « vers l'avant » : jamais adopter une
+      // version serveur plus ancienne (protège d'une perte de données).
+      if ((s.version || 0) > version) {
         adoptServer(s);
         render();
       }
@@ -395,11 +401,13 @@
       const header = document.createElement("div");
       header.className = "quadrant__header";
       header.innerHTML =
+        '<span class="quadrant__icon" aria-hidden="true"></span>' +
         '<div class="quadrant__titles">' +
         '<span class="quadrant__action"></span>' +
-        '<span class="quadrant__count">0</span>' +
+        '<span class="quadrant__label"></span>' +
         "</div>" +
-        '<p class="quadrant__label"></p>';
+        '<span class="quadrant__count">0</span>';
+      header.querySelector(".quadrant__icon").textContent = q.emoji;
       header.querySelector(".quadrant__action").textContent = q.action;
       header.querySelector(".quadrant__label").textContent = q.label;
       const list = document.createElement("ul");
@@ -447,14 +455,18 @@
     text.setAttribute("aria-label", "Intitulé de la tâche (modifiable)");
 
     const due = document.createElement("label");
-    due.className = "task__due" + (isOverdue(task) ? " is-overdue" : "");
+    due.className =
+      "task__due" +
+      (isOverdue(task) ? " is-overdue" : "") +
+      (task.dueDate ? "" : " task__due--empty");
+    due.title = task.dueDate ? "Modifier l'échéance" : "Ajouter une échéance";
     const dueIcon = document.createElement("span");
     dueIcon.className = "task__due-icon";
     dueIcon.textContent = "📅";
     dueIcon.setAttribute("aria-hidden", "true");
     const dueText = document.createElement("span");
     dueText.className = "task__due-text";
-    dueText.textContent = task.dueDate ? formatDue(task.dueDate) : "Échéance";
+    dueText.textContent = task.dueDate ? formatDue(task.dueDate) : "";
     const dueInput = document.createElement("input");
     dueInput.type = "date";
     dueInput.className = "task__due-input";
