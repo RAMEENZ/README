@@ -63,6 +63,10 @@
   const importBtn = document.getElementById("import-btn");
   const importFile = document.getElementById("import-file");
   const toastEl = document.getElementById("toast");
+  const bilanBtn = document.getElementById("bilan-btn");
+  const bilanEl = document.getElementById("bilan");
+  const bilanBody = document.getElementById("bilan-body");
+  const bilanClose = document.getElementById("bilan-close");
 
   const placeholder = document.createElement("li");
   placeholder.className = "task-placeholder";
@@ -106,6 +110,7 @@
       quadrant: t.quadrant,
       done: !!t.done,
       createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
+      completedAt: typeof t.completedAt === "number" ? t.completedAt : null,
       dueDate: typeof t.dueDate === "string" && t.dueDate ? t.dueDate : null,
       repeat: REPEATS.includes(t.repeat) ? t.repeat : "none",
       tags: Array.isArray(t.tags)
@@ -372,6 +377,7 @@
       return;
     }
     t.done = !t.done;
+    t.completedAt = t.done ? Date.now() : null;
     touch();
   }
   function cycleRepeat(id) {
@@ -820,6 +826,53 @@
     }
     syncStatusEl.textContent = "● " + txt;
     syncStatusEl.className = "sync-status " + cls;
+  }
+
+  // ---------- Bilan de la semaine ----------
+  function weekStats() {
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const done7 = tasks.filter(
+      (t) => t.done && t.completedAt && t.completedAt >= weekAgo
+    ).length;
+    const created7 = tasks.filter((t) => t.createdAt >= weekAgo).length;
+    const overdue = tasks.filter(isOverdue).length;
+    const active = tasks.filter((t) => !t.done).length;
+    const perQuad = QUADRANTS.map((q) => ({
+      id: q.id,
+      action: q.action,
+      emoji: q.emoji,
+      active: tasks.filter((t) => t.quadrant === q.id && !t.done).length,
+    }));
+    return { done7, created7, overdue, active, perQuad };
+  }
+  function openBilan() {
+    const s = weekStats();
+    const tile = (val, label, cls) =>
+      '<div class="stat-tile ' + (cls || "") + '">' +
+      '<div class="stat-tile__val">' + val + "</div>" +
+      '<div class="stat-tile__lbl">' + label + "</div></div>";
+    let html = '<div class="stat-grid">';
+    html += tile(s.done7, "terminées<br>cette semaine", "is-good");
+    html += tile(s.created7, "créées<br>cette semaine", "");
+    html += tile(s.active, "en cours", "");
+    html += tile(s.overdue, "en retard", s.overdue ? "is-bad" : "");
+    html += "</div>";
+    const maxActive = Math.max(1, ...s.perQuad.map((q) => q.active));
+    html += '<div class="bilan-quads"><h3 class="bilan-sub">Répartition en cours</h3>';
+    s.perQuad.forEach((q) => {
+      const pct = Math.round((q.active / maxActive) * 100);
+      html +=
+        '<div class="bilan-quad" data-q="' + q.id + '">' +
+        '<span class="bilan-quad__name">' + q.emoji + " " + q.action + "</span>" +
+        '<span class="bilan-quad__bar"><span style="width:' + pct + '%"></span></span>' +
+        '<span class="bilan-quad__n">' + q.active + "</span></div>";
+    });
+    html += "</div>";
+    bilanBody.innerHTML = html;
+    bilanEl.hidden = false;
+  }
+  function closeBilan() {
+    bilanEl.hidden = true;
   }
 
   // ---------- Toast / undo ----------
@@ -1374,6 +1427,14 @@
   themeToggle.addEventListener("click", cycleTheme);
   exportBtn.addEventListener("click", exportTasks);
   importBtn.addEventListener("click", () => importFile.click());
+  bilanBtn.addEventListener("click", openBilan);
+  bilanClose.addEventListener("click", closeBilan);
+  bilanEl.addEventListener("click", (e) => {
+    if (e.target.hasAttribute("data-close")) closeBilan();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !bilanEl.hidden) closeBilan();
+  });
   importFile.addEventListener("change", () => {
     if (importFile.files[0]) importTasks(importFile.files[0]);
     importFile.value = "";

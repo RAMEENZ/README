@@ -99,6 +99,7 @@
         <span class="sync-status" id="sync-status" title="État de la synchronisation"></span>
       </div>
       <div class="app-footer__actions">
+        <button type="button" class="btn btn--ghost" id="bilan-btn">📊 Bilan</button>
         <button type="button" class="btn btn--ghost" id="export-btn">Exporter</button>
         <button type="button" class="btn btn--ghost" id="import-btn">Importer</button>
         <button type="button" class="btn btn--ghost" id="clear-done">Effacer les terminées</button>
@@ -109,6 +110,17 @@
   <input type="file" id="import-file" accept="application/json,.json" hidden />
   <div id="drag-ghost" class="drag-ghost" aria-hidden="true"></div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="bilan" class="modal" hidden>
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__card" role="dialog" aria-modal="true" aria-label="Bilan de la semaine">
+      <div class="modal__head">
+        <h2 class="modal__title">📊 Bilan de la semaine</h2>
+        <button type="button" class="modal__close" id="bilan-close" aria-label="Fermer">&times;</button>
+      </div>
+      <div class="modal__body" id="bilan-body"></div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
