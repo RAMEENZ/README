@@ -35,6 +35,7 @@
   let hasBackend = null; // null = inconnu, true/false ensuite
   let syncMode = "local"; // "local" | "online" | "offline"
   let searchQuery = "";
+  let activeTag = null; // filtre par étiquette
   let sortMode = localStorage.getItem(SORT_KEY) || "manual";
   let lastAddedId = null; // pour l'animation d'apparition
 
@@ -55,6 +56,7 @@
   const ghostEl = document.getElementById("drag-ghost");
   const searchEl = document.getElementById("search-input");
   const sortEl = document.getElementById("sort-select");
+  const tagFilterEl = document.getElementById("tag-filter");
   const themeToggle = document.getElementById("theme-toggle");
   const themeIcon = document.getElementById("theme-icon");
   const exportBtn = document.getElementById("export-btn");
@@ -106,6 +108,16 @@
       createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
       dueDate: typeof t.dueDate === "string" && t.dueDate ? t.dueDate : null,
       repeat: REPEATS.includes(t.repeat) ? t.repeat : "none",
+      tags: Array.isArray(t.tags)
+        ? Array.from(
+            new Set(
+              t.tags
+                .filter((x) => typeof x === "string")
+                .map((x) => x.toLowerCase().replace(/[^a-z0-9à-ÿ_-]/gi, "").slice(0, 24))
+                .filter(Boolean)
+            )
+          ).slice(0, 12)
+        : [],
       subtasks: Array.isArray(t.subtasks)
         ? t.subtasks.filter((s) => s && s.text != null).map(normalizeSub)
         : [],
@@ -324,7 +336,7 @@
   }
 
   // ---------- Opérations ----------
-  function addTask(text, quadrant, dueDate) {
+  function addTask(text, quadrant, dueDate, tags) {
     const trimmed = text.trim();
     if (!trimmed) return;
     const t = normalize({
@@ -334,9 +346,16 @@
       done: false,
       createdAt: Date.now(),
       dueDate: dueDate || null,
+      tags: tags || [],
     });
     tasks.push(t);
     lastAddedId = t.id;
+    touch();
+  }
+  function removeTag(id, tag) {
+    const t = findTask(id);
+    if (!t) return;
+    t.tags = t.tags.filter((x) => x !== tag);
     touch();
   }
   function toggleTask(id) {
@@ -439,6 +458,21 @@
     t.subtasks = t.subtasks.filter((x) => x.id !== subId);
     touch();
   }
+  function editSub(taskId, subId, text) {
+    const t = findTask(taskId);
+    if (!t) return;
+    const s = t.subtasks.find((x) => x.id === subId);
+    if (!s) return;
+    const trimmed = text.trim();
+    if (!trimmed) {
+      deleteSub(taskId, subId);
+      return;
+    }
+    if (s.text === trimmed) return;
+    s.text = trimmed;
+    saveLocal();
+    schedulePush();
+  }
 
   // ---------- Tri / recherche ----------
   function setSort(mode) {
@@ -447,8 +481,13 @@
     if (sortEl) sortEl.value = mode;
   }
   function matchesSearch(t) {
-    if (!searchQuery) return true;
-    return t.text.toLowerCase().includes(searchQuery);
+    if (activeTag && !t.tags.includes(activeTag)) return false;
+    if (searchQuery) {
+      const inText = t.text.toLowerCase().includes(searchQuery);
+      const inTags = t.tags.some((x) => x.includes(searchQuery));
+      if (!inText && !inTags) return false;
+    }
+    return true;
   }
   function sortItems(items) {
     const arr = items.slice();
@@ -545,6 +584,10 @@
       const txt = document.createElement("span");
       txt.className = "subtask__text";
       txt.textContent = s.text;
+      txt.contentEditable = "true";
+      txt.spellcheck = false;
+      txt.setAttribute("role", "textbox");
+      txt.setAttribute("aria-label", "Sous-tâche (modifiable)");
       const del = document.createElement("button");
       del.type = "button";
       del.className = "subtask__delete";
@@ -657,6 +700,30 @@
       '<span class="task__caret" aria-hidden="true">' + (isExpanded ? "▾" : "▸") + "</span>";
     meta.appendChild(subToggle);
     body.appendChild(meta);
+
+    if (task.tags.length) {
+      const tagsRow = document.createElement("div");
+      tagsRow.className = "task__tags";
+      task.tags.forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.className = "task__tag" + (activeTag === tag ? " is-active" : "");
+        chip.dataset.tag = tag;
+        chip.title = "Filtrer par #" + tag;
+        const label = document.createElement("span");
+        label.className = "task__tag-label";
+        label.textContent = "#" + tag;
+        const rm = document.createElement("button");
+        rm.type = "button";
+        rm.className = "task__tag-remove";
+        rm.innerHTML = "&times;";
+        rm.title = "Retirer l'étiquette";
+        rm.setAttribute("aria-label", "Retirer l'étiquette " + tag);
+        chip.appendChild(label);
+        chip.appendChild(rm);
+        tagsRow.appendChild(chip);
+      });
+      body.appendChild(tagsRow);
+    }
 
     if (total) {
       const prog = document.createElement("div");
@@ -1044,6 +1111,18 @@
       if (li) cycleRepeat(li.dataset.id);
       return;
     }
+    const tagRm = e.target.closest(".task__tag-remove");
+    if (tagRm) {
+      const li = tagRm.closest(".task");
+      const chip = tagRm.closest(".task__tag");
+      if (li && chip) removeTag(li.dataset.id, chip.dataset.tag);
+      return;
+    }
+    const tagChip = e.target.closest(".task__tag");
+    if (tagChip) {
+      setActiveTag(activeTag === tagChip.dataset.tag ? null : tagChip.dataset.tag);
+      return;
+    }
     const expand = e.target.closest(".task__subtoggle");
     if (expand) {
       const li = expand.closest(".task");
@@ -1093,15 +1172,38 @@
   });
 
   matrixEl.addEventListener("blur", (e) => {
+    const stext = e.target.closest(".subtask__text");
+    if (stext) {
+      const li = stext.closest(".task");
+      const sub = stext.closest(".subtask");
+      if (li && sub) editSub(li.dataset.id, sub.dataset.subId, stext.textContent);
+      return;
+    }
     const text = e.target.closest(".task__text");
     if (!text) return;
     const li = text.closest(".task");
     if (li) editTask(li.dataset.id, text.textContent);
   }, true);
 
+  matrixEl.addEventListener("keydown", (e) => {
+    const stext = e.target.closest(".subtask__text");
+    if (!stext) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      stext.blur();
+    } else if (e.key === "Escape") {
+      const li = stext.closest(".task");
+      const sub = stext.closest(".subtask");
+      const t = li && findTask(li.dataset.id);
+      const s = t && t.subtasks.find((x) => x.id === sub.dataset.subId);
+      if (s) stext.textContent = s.text;
+      stext.blur();
+    }
+  });
+
   // Collage en texte brut (évite d'injecter du HTML mis en forme).
   matrixEl.addEventListener("paste", (e) => {
-    const text = e.target.closest(".task__text");
+    const text = e.target.closest(".task__text, .subtask__text");
     if (!text) return;
     e.preventDefault();
     const plain = ((e.clipboardData || window.clipboardData).getData("text/plain") || "")
@@ -1216,11 +1318,42 @@
     return { dueDate: toIsoDate(due), text: cleaned };
   }
 
+  // ---------- Étiquettes (#tags) ----------
+  function extractTags(text) {
+    const tags = [];
+    const cleaned = text
+      .replace(/(^|\s)#([a-z0-9à-ÿ_-]{1,24})/gi, (m, pre, tag) => {
+        tags.push(tag.toLowerCase());
+        return pre;
+      })
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    return { tags, text: cleaned };
+  }
+  function setActiveTag(tag) {
+    activeTag = tag || null;
+    renderTagFilter();
+    render();
+  }
+  function renderTagFilter() {
+    if (!tagFilterEl) return;
+    if (activeTag) {
+      tagFilterEl.hidden = false;
+      tagFilterEl.textContent = "Filtre : #" + activeTag + "  ✕";
+      tagFilterEl.title = "Retirer le filtre";
+    } else {
+      tagFilterEl.hidden = true;
+    }
+  }
+
   // ---------- Formulaire, contrôles, pied de page ----------
   formEl.addEventListener("submit", (e) => {
     e.preventDefault();
     let text = inputEl.value;
     let due = dueEl.value;
+    // Étiquettes #tag dans le titre
+    const tg = extractTags(text);
+    text = tg.text;
     // Si aucune date choisie explicitement, on tente de la déduire du texte.
     if (!due) {
       const parsed = parseNaturalDate(text);
@@ -1229,11 +1362,13 @@
         text = parsed.text;
       }
     }
-    addTask(text, quadrantSelectEl.value, due);
+    addTask(text, quadrantSelectEl.value, due, tg.tags);
     inputEl.value = "";
     dueEl.value = "";
     inputEl.focus();
   });
+
+  if (tagFilterEl) tagFilterEl.addEventListener("click", () => setActiveTag(null));
 
   clearDoneBtn.addEventListener("click", clearDone);
   themeToggle.addEventListener("click", cycleTheme);
@@ -1296,6 +1431,7 @@
   loadLocal();
   applyTheme();
   setSort(sortMode);
+  renderTagFilter();
   render();
   initSync();
 })();
