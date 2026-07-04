@@ -1,65 +1,151 @@
-# Matrice d'Eisenhower — Organiseur de tâches
+<h1 align="center">🗂️ Matrice d'Eisenhower</h1>
 
-Une application web pour organiser ses tâches selon la **matrice d'Eisenhower**, qui classe le travail selon deux axes : l'**urgence** et l'**importance**.
+<p align="center">
+  Un organiseur de tâches auto-hébergé, basé sur la <b>matrice d'Eisenhower</b> :<br>
+  priorisez selon l'<b>urgence</b> et l'<b>importance</b>, sans distraction.
+</p>
 
-## Les quatre quadrants
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+    <img alt="Capture de la Matrice d'Eisenhower" src="docs/screenshot-light.png" width="820">
+  </picture>
+</p>
 
-|                    | Urgent               | Pas urgent                  |
-| ------------------ | -------------------- | --------------------------- |
-| **Important**      | **Faire** maintenant | **Planifier**               |
-| **Pas important**  | **Déléguer**         | **Éliminer**                |
+<p align="center">
+  <i>Frontend statique (HTML/CSS/JS sans framework) · Backend Python <b>sans aucune dépendance</b> (bibliothèque standard) · PWA installable</i>
+</p>
 
-## Fonctionnalités
+---
 
-- Ajout de tâches dans le quadrant de votre choix, avec **date d'échéance** optionnelle.
-- **Glisser-déposer** : déplacer une tâche d'un quadrant à l'autre **et réordonner** au sein d'un quadrant (souris et tactile).
-- Édition du texte en cliquant dessus, marquage « terminé », **annulation** de suppression.
-- **Surlignage des tâches en retard** (échéance dépassée).
-- **Recherche** et **tri** (manuel, par échéance, par date d'ajout, A→Z).
-- **Thème** clair / sombre / automatique (bouton dédié).
-- **Export / import** des tâches au format JSON.
-- **Application installable (PWA)** : icône sur l'écran d'accueil, fonctionnement hors-ligne.
-- **Synchronisation multi-appareils** via un petit backend (voir ci-dessous). Sans backend, l'appli fonctionne quand même en local (localStorage).
+## ✨ Fonctionnalités
 
-## Utilisation
+- **Les 4 quadrants** — Faire · Planifier · Déléguer · Éliminer, avec libellés d'axes (Urgent / Important).
+- **Glisser-déposer** des tâches entre quadrants et **réordonnancement** à l'intérieur (souris + tactile).
+- **Quadrants redimensionnables** — poignées glissables, ratio mémorisé (double-clic pour réinitialiser).
+- **Échéances** avec dates relatives (« auj. », « demain », « dans 3 j », « en retard ») et surlignage des retards.
+- **Saisie en langage naturel** — taper « Appeler le client demain » ou « Réunion 15/08 » remplit l'échéance et nettoie le titre.
+- **Tâches récurrentes** (quotidien / hebdo / mensuel) : cocher reprogramme à la prochaine occurrence.
+- **Sous-tâches / checklists** avec barre de progression, éditables en ligne.
+- **Étiquettes `#tags`** filtrables, ajoutées directement dans le titre.
+- **Recherche**, **tri** (échéance, récence, alphabétique), **annulation** de suppression.
+- **Thème clair / sombre** (auto ou manuel), **PWA** installable et fonctionnelle **hors-ligne**.
+- **Synchronisation multi-appareils** via un petit backend (téléphone ↔ ordinateur).
+- **Bilan hebdomadaire** (terminées / créées / en retard, répartition par quadrant).
+- **Rappels par e-mail** et **notifications push** quotidiens.
+- **Google Agenda dans les deux sens** (tâches → agenda via flux ICS, agenda → tâches via import).
+- **Sauvegardes automatiques** quotidiennes des données.
 
-### Mode simple (local, sans synchronisation)
+## 🧱 Architecture
 
-Aucune dépendance. Ouvrez `index.html`, ou servez le dossier :
+| Composant | Rôle |
+|---|---|
+| `index.html` · `style.css` · `app.js` | Interface (aucune dépendance, aucun build) |
+| `sw.js` · `manifest.webmanifest` | Service worker + PWA (hors-ligne, installable) |
+| `server.py` | Serveur statique **+ API de synchro** `/api/state`, flux ICS, rappels, push, import agenda — **stdlib Python uniquement** |
+| `data/` | État (`state.json`), sauvegardes, clés — généré à l'exécution, jamais versionné |
+
+Les tâches vivent dans le `localStorage` du navigateur **et**, si le backend est joignable, sont synchronisées entre appareils (versionnage optimiste, fusion sans perte).
+
+## 🚀 Démarrage rapide
 
 ```bash
-python3 -m http.server 8000   # puis http://localhost:8000
+git clone https://github.com/RAMEENZ/Eisenhower.git
+cd Eisenhower
+python3 server.py
 ```
 
-Les tâches sont conservées dans le navigateur (localStorage).
+Puis ouvre <http://localhost:8000>. C'est tout — aucune installation de dépendance pour l'usage de base.
 
-### Mode synchronisé (multi-appareils)
+Variables d'environnement principales :
 
-Lancez le backend fourni (bibliothèque standard de Python uniquement) : il sert
-le site **et** expose une API `/api/state` qui partage les tâches entre tous vos
-appareils.
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `PORT` | `8000` | Port d'écoute |
+| `BIND` | `127.0.0.1` | Adresse d'écoute |
+| `EISENHOWER_DATA` | `./data` | Dossier de stockage |
+
+## ⚙️ Fonctions optionnelles
+
+Toutes sont **désactivées par défaut** et s'activent par variables d'environnement (par ex. via un `EnvironmentFile` systemd).
+
+<details>
+<summary><b>📧 Rappels par e-mail</b></summary>
 
 ```bash
-python3 server.py     # écoute sur 127.0.0.1:8000 par défaut
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=toi@gmail.com
+SMTP_PASS=mot_de_passe_application   # Gmail : mot de passe d'application
+REMINDER_TO=toi@gmail.com
+REMINDER_HOUR=8                       # heure d'envoi (0-23)
 ```
 
-Variables d'environnement : `PORT` (défaut 8000), `BIND` (défaut 127.0.0.1),
-`EISENHOWER_DATA` (dossier de stockage, défaut `./data`).
+Test : `python3 server.py --send-reminder-now [--dry-run]`
+</details>
 
-Les tâches sont stockées côté serveur dans `data/state.json` (écriture atomique,
-gestion de concurrence par numéro de version).
+<details>
+<summary><b>🔔 Notifications push (Web Push / VAPID)</b></summary>
 
-## Structure du projet
+Nécessite la seule dépendance du projet, `pywebpush` :
 
-- `index.html` — structure de la page.
-- `style.css` — mise en forme, couleurs des quadrants, thèmes, responsive.
-- `app.js` — logique (tâches, échéances, glisser-déposer, recherche/tri, thème, synchro, PWA).
-- `server.py` — backend statique + API de synchronisation (stdlib Python, sans dépendance).
-- `manifest.webmanifest`, `sw.js`, `icon*.png`, `icon.svg` — fichiers de la PWA.
+```bash
+python3 -m venv .venv
+.venv/bin/pip install pywebpush
+.venv/bin/python server.py --gen-vapid        # génère data/vapid_private.pem
+.venv/bin/python server.py                    # lance avec push activé
+```
 
-## Confidentialité
+Puis, dans l'appli (en **HTTPS**), clique « 🔔 Activer les notifications ».
+Le rappel quotidien envoie alors aussi une notification push.
+</details>
 
-En mode local, rien ne quitte l'appareil. En mode synchronisé, les tâches
-transitent vers votre propre serveur. L'API n'a pas d'authentification
-intégrée : si le site est exposé publiquement, protégez-le (par exemple avec
-Cloudflare Access) ou gardez-le sur un réseau privé.
+<details>
+<summary><b>📅 Google Agenda (deux sens, sans OAuth)</b></summary>
+
+**Tâches → Agenda** : le serveur publie un flux iCalendar protégé par un jeton secret.
+L'URL s'affiche au démarrage ; abonne-la dans Google Agenda (« À partir de l'URL »).
+
+**Agenda → Tâches** : lecture périodique d'une adresse secrète iCal.
+
+```bash
+GCAL_ICS_URL=https://calendar.google.com/calendar/ical/…/private-…/basic.ics
+GCAL_IMPORT_QUADRANT=q2      # quadrant des tâches importées
+GCAL_IMPORT_DAYS=30          # fenêtre (jours)
+GCAL_POLL_MIN=30             # intervalle de lecture (minutes)
+```
+
+Test : `python3 server.py --sync-gcal-now`
+> ⚠️ N'importe pas l'agenda dans lequel tu as abonné le flux (un garde-fou anti-boucle est intégré).
+</details>
+
+## 🌐 Déploiement (exemple : systemd + Cloudflare Tunnel)
+
+Service systemd type :
+
+```ini
+[Service]
+WorkingDirectory=/opt/eisenhower
+Environment=PORT=8000
+Environment=BIND=127.0.0.1
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/eisenhower.env
+ExecStart=/opt/eisenhower/.venv/bin/python /opt/eisenhower/server.py
+Restart=on-failure
+```
+
+Le service n'écoute qu'en local (`127.0.0.1`) ; un **tunnel Cloudflare** expose le site en HTTPS sans ouvrir de port. Optionnel : **Cloudflare Access** pour restreindre l'accès (penser à exclure le chemin `/calendar/*` pour que Google puisse lire le flux).
+
+## 💾 Sauvegardes & confidentialité
+
+À chaque écriture, une sauvegarde datée est créée dans `data/backups/` (une par jour, rétention `BACKUP_KEEP` = 14 par défaut). L'export / import JSON depuis l'interface offre une sauvegarde manuelle.
+
+En mode local, rien ne quitte l'appareil. En mode synchronisé, les tâches transitent vers **ton propre serveur**. L'API n'a pas d'authentification intégrée : si le site est public, protège-le (Cloudflare Access, réseau privé…).
+
+## 🧪 Tests
+
+Le backend expose des commandes de test : `--send-reminder-now [--dry-run]`, `--sync-gcal-now`, `--gen-vapid`. Le frontend se prête à des tests de bout en bout via un navigateur sans tête (rendu des quadrants, synchro, thème, dates naturelles, récurrence, étiquettes, bilan…).
+
+## 📄 Licence
+
+Voir [`LICENSE`](LICENSE).
