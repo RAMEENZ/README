@@ -11,6 +11,12 @@ Variables d'environnement :
   BIND              adresse d'écoute         (défaut : 127.0.0.1)
   EISENHOWER_DATA   dossier de stockage      (défaut : ./data)
 
+  --- Import Google Agenda -> tâches (optionnel, activé si GCAL_ICS_URL) ---
+  GCAL_ICS_URL          adresse secrète iCal d'un agenda Google à importer
+  GCAL_IMPORT_QUADRANT  quadrant des tâches importées (q1-q4, défaut : q2)
+  GCAL_IMPORT_DAYS      fenêtre en jours vers le futur (défaut : 30)
+  GCAL_POLL_MIN         intervalle de lecture en minutes (défaut : 30)
+
   --- Rappels par e-mail (optionnels, activés si SMTP_HOST et REMINDER_TO) ---
   SMTP_HOST         serveur SMTP (ex : smtp.gmail.com)
   SMTP_PORT         port SMTP                (défaut : 587)
@@ -35,6 +41,7 @@ import smtplib
 import sys
 import threading
 import time
+import urllib.request
 from datetime import date, timedelta
 from email.message import EmailMessage
 from http import HTTPStatus
@@ -251,6 +258,156 @@ def reminder_loop():
 
 
 # ---------------------------------------------------------------------------
+# Import Google Agenda -> tâches (lecture d'une adresse iCal secrète).
+# Sans OAuth : on lit le flux .ics et on réconcilie des tâches « gcal: ».
+# ---------------------------------------------------------------------------
+def load_gcal_config():
+    url = os.environ.get("GCAL_ICS_URL", "").strip()
+    quad = os.environ.get("GCAL_IMPORT_QUADRANT", "q2").strip()
+    if quad not in ("q1", "q2", "q3", "q4"):
+        quad = "q2"
+    try:
+        days = int(os.environ.get("GCAL_IMPORT_DAYS", "30"))
+    except ValueError:
+        days = 30
+    try:
+        poll = int(os.environ.get("GCAL_POLL_MIN", "30"))
+    except ValueError:
+        poll = 30
+    return {
+        "enabled": bool(url),
+        "url": url,
+        "quadrant": quad,
+        "days": max(1, days),
+        "poll_min": max(5, poll),
+    }
+
+
+GCAL = load_gcal_config()
+
+
+def _ics_unescape(s):
+    return (
+        s.replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+    )
+
+
+def fetch_ics(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Eisenhower/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 (URL fournie par l'admin)
+        return r.read().decode("utf-8", "replace")
+
+
+def parse_ics(text):
+    """Extrait les VEVENT : liste de {uid, summary, date 'YYYY-MM-DD'}."""
+    raw = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = []
+    for ln in raw:  # dépliage RFC 5545 (lignes de continuation)
+        if ln[:1] in (" ", "\t") and lines:
+            lines[-1] += ln[1:]
+        else:
+            lines.append(ln)
+    events, cur = [], None
+    for ln in lines:
+        if ln == "BEGIN:VEVENT":
+            cur = {}
+        elif ln == "END:VEVENT":
+            if cur and cur.get("uid") and cur.get("date"):
+                cur.setdefault("summary", "(sans titre)")
+                events.append(cur)
+            cur = None
+        elif cur is not None and ":" in ln:
+            key, val = ln.split(":", 1)
+            name = key.split(";", 1)[0].upper()
+            if name == "UID":
+                cur["uid"] = val.strip()
+            elif name == "SUMMARY":
+                cur["summary"] = _ics_unescape(val).strip() or "(sans titre)"
+            elif name == "DTSTART":
+                dpart = val.strip()[:8]
+                if len(dpart) == 8 and dpart.isdigit():
+                    cur["date"] = "{}-{}-{}".format(dpart[0:4], dpart[4:6], dpart[6:8])
+    return events
+
+
+def sync_gcal(verbose=False):
+    if not GCAL["enabled"]:
+        if verbose:
+            print("[agenda] import désactivé (définir GCAL_ICS_URL)")
+        return False
+    try:
+        events = parse_ics(fetch_ics(GCAL["url"]))
+    except Exception as exc:  # noqa: BLE001
+        print("[agenda] import : échec de lecture : {}".format(exc))
+        return False
+
+    today = date.today()
+    lo, hi = today - timedelta(days=1), today + timedelta(days=GCAL["days"])
+    desired = {}
+    for ev in events:
+        try:
+            y, m, d = ev["date"].split("-")
+            dd = date(int(y), int(m), int(d))
+        except (ValueError, KeyError):
+            continue
+        if lo <= dd <= hi:
+            desired["gcal:" + ev["uid"]] = ev
+
+    with _lock:
+        state = load_state()
+        tasks = state["tasks"]
+        changed = False
+        kept = []
+        for t in tasks:
+            tid = t.get("id") if isinstance(t, dict) else None
+            if tid and str(tid).startswith("gcal:") and tid not in desired:
+                changed = True  # événement disparu de la fenêtre -> on retire
+                continue
+            kept.append(t)
+        existing = {t.get("id"): t for t in kept if isinstance(t, dict)}
+        for gid, ev in desired.items():
+            if gid in existing:
+                t = existing[gid]
+                if t.get("text") != ev["summary"] or t.get("dueDate") != ev["date"]:
+                    t["text"] = ev["summary"]
+                    t["dueDate"] = ev["date"]
+                    changed = True
+            else:
+                kept.append({
+                    "id": gid,
+                    "text": ev["summary"],
+                    "quadrant": GCAL["quadrant"],
+                    "done": False,
+                    "createdAt": int(time.time() * 1000),
+                    "dueDate": ev["date"],
+                    "repeat": "none",
+                    "tags": ["agenda"],
+                    "subtasks": [],
+                })
+                changed = True
+        if changed:
+            state["tasks"] = kept
+            state["version"] = state.get("version", 0) + 1
+            state["updatedAt"] = int(time.time() * 1000)
+            save_state(state)
+            maybe_backup(state)
+            print("[agenda] import : {} événement(s), état mis à jour".format(len(desired)))
+        elif verbose:
+            print("[agenda] import : {} événement(s), rien à changer".format(len(desired)))
+    return True
+
+
+def gcal_loop():
+    time.sleep(5)
+    while True:
+        try:
+            sync_gcal()
+        except Exception as exc:  # noqa: BLE001
+            print("[agenda] import boucle : {}".format(exc))
+        time.sleep(GCAL["poll_min"] * 60)
+
+
+# ---------------------------------------------------------------------------
 # Flux ICS (Google Agenda & autres) — tâches datées, protégé par un jeton.
 # ---------------------------------------------------------------------------
 ICS_TOKEN_FILE = os.path.join(DATA_DIR, "ics_token")
@@ -453,6 +610,21 @@ def main():
     if "--send-reminder-now" in sys.argv:
         ok = run_reminder(dry="--dry-run" in sys.argv)
         sys.exit(0 if ok else 1)
+
+    # Mode test : synchronise l'agenda maintenant puis quitte.
+    if "--sync-gcal-now" in sys.argv:
+        ok = sync_gcal(verbose=True)
+        sys.exit(0 if ok else 1)
+
+    if GCAL["enabled"]:
+        threading.Thread(target=gcal_loop, daemon=True).start()
+        print(
+            "[agenda] import activé — lecture toutes les {} min, vers le quadrant {}".format(
+                GCAL["poll_min"], GCAL["quadrant"]
+            )
+        )
+    else:
+        print("[agenda] import désactivé (définir GCAL_ICS_URL pour l'activer)")
 
     if REMINDER["enabled"]:
         threading.Thread(target=reminder_loop, daemon=True).start()
