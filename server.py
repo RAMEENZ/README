@@ -345,6 +345,10 @@ def sync_gcal(verbose=False):
     lo, hi = today - timedelta(days=1), today + timedelta(days=GCAL["days"])
     desired = {}
     for ev in events:
+        # Garde-fou anti-boucle : ne jamais réimporter nos propres événements
+        # (au cas où l'URL pointerait par erreur sur le flux Eisenhower).
+        if ev["uid"].endswith("@eisenhower"):
+            continue
         try:
             y, m, d = ev["date"].split("-")
             dd = date(int(y), int(m), int(d))
