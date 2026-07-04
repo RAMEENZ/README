@@ -30,6 +30,7 @@ Test manuel :
 
 import json
 import os
+import secrets
 import smtplib
 import sys
 import threading
@@ -249,6 +250,98 @@ def reminder_loop():
         time.sleep(60)
 
 
+# ---------------------------------------------------------------------------
+# Flux ICS (Google Agenda & autres) — tâches datées, protégé par un jeton.
+# ---------------------------------------------------------------------------
+ICS_TOKEN_FILE = os.path.join(DATA_DIR, "ics_token")
+QUAD_EMOJI = {"q1": "🔥", "q2": "📅", "q3": "🤝", "q4": "🗑️"}
+QUAD_NAME = {"q1": "Faire", "q2": "Planifier", "q3": "Déléguer", "q4": "Éliminer"}
+
+
+def get_ics_token():
+    try:
+        with open(ICS_TOKEN_FILE, "r", encoding="utf-8") as f:
+            tok = f.read().strip()
+            if tok:
+                return tok
+    except OSError:
+        pass
+    tok = secrets.token_hex(16)
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(ICS_TOKEN_FILE, "w", encoding="utf-8") as f:
+            f.write(tok)
+        os.chmod(ICS_TOKEN_FILE, 0o600)
+    except OSError:
+        pass
+    return tok
+
+
+ICS_TOKEN = get_ics_token()
+
+
+def _ics_escape(s):
+    return (
+        str(s)
+        .replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
+    )
+
+
+def build_ics(state):
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Eisenhower//Matrice//FR",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:Matrice d'Eisenhower",
+    ]
+    for t in state.get("tasks", []):
+        if not isinstance(t, dict):
+            continue
+        dd = t.get("dueDate")
+        if not isinstance(dd, str) or dd.count("-") != 2:
+            continue
+        y, m, d = dd.split("-")
+        try:
+            end = (date(int(y), int(m), int(d)) + timedelta(days=1)).strftime("%Y%m%d")
+        except ValueError:
+            continue
+        q = t.get("quadrant", "q1")
+        summary = "{} {}".format(QUAD_EMOJI.get(q, ""), str(t.get("text", "")).strip())
+        if t.get("done"):
+            summary = "✔ " + summary
+        parts = [QUAD_NAME.get(q, "")]
+        tags = t.get("tags") or []
+        if tags:
+            parts.append("Étiquettes : " + ", ".join("#" + str(x) for x in tags))
+        subs = t.get("subtasks") or []
+        if subs:
+            done = sum(1 for s in subs if s.get("done"))
+            parts.append("Sous-tâches : {}/{}".format(done, len(subs)))
+            for s in subs:
+                parts.append(("[x] " if s.get("done") else "[ ] ") + str(s.get("text", "")))
+        desc = "\\n".join(_ics_escape(p) for p in parts if p)
+        lines += [
+            "BEGIN:VEVENT",
+            "UID:{}@eisenhower".format(t.get("id", "x")),
+            "DTSTAMP:" + stamp,
+            "DTSTART;VALUE=DATE:{}{}{}".format(y, m, d),
+            "DTEND;VALUE=DATE:" + end,
+            "SUMMARY:" + _ics_escape(summary),
+        ]
+        if desc:
+            lines.append("DESCRIPTION:" + desc)
+        lines.append("CATEGORIES:" + _ics_escape(QUAD_NAME.get(q, "")))
+        lines.append("END:VEVENT")
+    lines.append("END:VCALENDAR")
+    return ("\r\n".join(lines) + "\r\n").encode("utf-8")
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
@@ -269,8 +362,26 @@ class Handler(SimpleHTTPRequestHandler):
         return any(clean == p or clean.startswith(p + "/") for p in BLOCKED)
 
     # -- routes --------------------------------------------------------
+    def _serve_ics(self):
+        if self.path.split("?")[0] != "/calendar/{}.ics".format(ICS_TOKEN):
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        with _lock:
+            body = build_ics(load_state())
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/calendar; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
     def do_GET(self):
-        if self.path.split("?")[0] == "/api/state":
+        clean = self.path.split("?")[0]
+        if clean.startswith("/calendar/"):
+            self._serve_ics()
+            return
+        if clean == "/api/state":
             with _lock:
                 self._send_json(HTTPStatus.OK, load_state())
             return
@@ -280,6 +391,9 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_HEAD(self):
+        if self.path.split("?")[0].startswith("/calendar/"):
+            self._serve_ics()
+            return
         if self._is_blocked(self.path):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -349,6 +463,9 @@ def main():
         )
     else:
         print("[rappel] désactivé (définir SMTP_HOST et REMINDER_TO pour l'activer)")
+
+    ics_base = REMINDER["url"] or "http://{}:{}".format(BIND, PORT)
+    print("[agenda] flux ICS : {}/calendar/{}.ics".format(ics_base, ICS_TOKEN))
 
     with ThreadingHTTPServer((BIND, PORT), Handler) as httpd:
         print(f"Matrice d'Eisenhower : http://{BIND}:{PORT}  (données : {DATA_FILE})")
