@@ -34,6 +34,7 @@ Test manuel :
   python3 server.py --send-reminder-now --dry-run  # affiche sans envoyer
 """
 
+import base64
 import json
 import os
 import secrets
@@ -215,16 +216,25 @@ def run_reminder(dry=False):
         print("[rappel] rien à signaler aujourd'hui")
         return True
     subject, body = format_reminder(overdue, due_today, due_tomorrow)
+    push_body = "{} en retard · {} aujourd'hui · {} demain".format(
+        len(overdue), len(due_today), len(due_tomorrow)
+    )
     if dry:
         print("[rappel] (dry-run)\nSujet : {}\n\n{}".format(subject, body))
+        print("[push] (dry-run) corps : {}".format(push_body))
         return True
-    try:
-        send_email(subject, body)
-        print("[rappel] e-mail envoyé à {}".format(REMINDER["to"]))
-        return True
-    except Exception as exc:  # noqa: BLE001 — on ne veut jamais planter le serveur
-        print("[rappel] ERREUR d'envoi : {}".format(exc))
-        return False
+    ok = True
+    if REMINDER["enabled"]:
+        try:
+            send_email(subject, body)
+            print("[rappel] e-mail envoyé à {}".format(REMINDER["to"]))
+        except Exception as exc:  # noqa: BLE001 — on ne plante jamais le serveur
+            print("[rappel] ERREUR d'envoi : {}".format(exc))
+            ok = False
+    if push_enabled():
+        n = send_push_all("🗂️ Eisenhower — à suivre", push_body, REMINDER.get("url"))
+        print("[push] {} notification(s) envoyée(s)".format(n))
+    return ok
 
 
 def _last_sent_day():
@@ -255,6 +265,138 @@ def reminder_loop():
         except Exception as exc:  # noqa: BLE001
             print("[rappel] boucle : {}".format(exc))
         time.sleep(60)
+
+
+# ---------------------------------------------------------------------------
+# Notifications push (Web Push / VAPID). Nécessite le paquet « pywebpush ».
+# ---------------------------------------------------------------------------
+VAPID_PEM_FILE = os.path.join(DATA_DIR, "vapid_private.pem")
+PUSH_SUBS_FILE = os.path.join(DATA_DIR, "push_subs.json")
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "").strip() or (
+    "mailto:" + (os.environ.get("REMINDER_TO", "").strip() or "admin@example.com")
+)
+
+
+def _b64url(raw):
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def push_public_key():
+    """applicationServerKey (base64url) dérivée de la clé privée VAPID, ou None."""
+    try:
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding,
+            PublicFormat,
+            load_pem_private_key,
+        )
+    except Exception:
+        return None
+    try:
+        with open(VAPID_PEM_FILE, "rb") as f:
+            priv = load_pem_private_key(f.read(), password=None)
+        raw = priv.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+        return _b64url(raw)
+    except (OSError, ValueError):
+        return None
+
+
+def push_enabled():
+    if not os.path.exists(VAPID_PEM_FILE):
+        return False
+    try:
+        import pywebpush  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def load_subs():
+    try:
+        with open(PUSH_SUBS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def save_subs(subs):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = PUSH_SUBS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(subs, f)
+        os.replace(tmp, PUSH_SUBS_FILE)
+    except OSError:
+        pass
+
+
+def add_sub(sub):
+    ep = sub.get("endpoint") if isinstance(sub, dict) else None
+    if not ep:
+        return
+    with _lock:
+        subs = [s for s in load_subs() if s.get("endpoint") != ep]
+        subs.append(sub)
+        save_subs(subs)
+
+
+def remove_sub(endpoint):
+    with _lock:
+        subs = [s for s in load_subs() if s.get("endpoint") != endpoint]
+        save_subs(subs)
+
+
+def send_push_all(title, body, url=None):
+    if not push_enabled():
+        return 0
+    try:
+        from pywebpush import WebPushException, webpush
+    except Exception:
+        return 0
+    payload = json.dumps({"title": title, "body": body, "url": url or REMINDER.get("url", "")})
+    dead, sent = [], 0
+    for s in load_subs():
+        try:
+            webpush(
+                subscription_info=s,
+                data=payload,
+                vapid_private_key=VAPID_PEM_FILE,
+                vapid_claims={"sub": VAPID_SUBJECT},
+            )
+            sent += 1
+        except WebPushException as exc:
+            code = getattr(getattr(exc, "response", None), "status_code", None)
+            if code in (404, 410):
+                dead.append(s.get("endpoint"))
+        except Exception:
+            pass
+    if dead:
+        with _lock:
+            subs = [s for s in load_subs() if s.get("endpoint") not in dead]
+            save_subs(subs)
+    return sent
+
+
+def gen_vapid():
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+    except Exception:
+        print("[push] 'cryptography' manquant — installe d'abord pywebpush.")
+        return False
+    priv = ec.generate_private_key(ec.SECP256R1())
+    pem = priv.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(VAPID_PEM_FILE, "wb") as f:
+        f.write(pem)
+    os.chmod(VAPID_PEM_FILE, 0o600)
+    print("[push] clés VAPID générées :", VAPID_PEM_FILE)
+    print("[push] clé publique :", push_public_key())
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -546,10 +688,35 @@ class Handler(SimpleHTTPRequestHandler):
             with _lock:
                 self._send_json(HTTPStatus.OK, load_state())
             return
+        if clean == "/api/push/key":
+            key = push_public_key() if push_enabled() else None
+            self._send_json(HTTPStatus.OK, {"publicKey": key})
+            return
         if self._is_blocked(self.path):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         super().do_GET()
+
+    def do_POST(self):
+        clean = self.path.split("?")[0]
+        if clean not in ("/api/push/subscribe", "/api/push/unsubscribe"):
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length > MAX_BODY:
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too large"})
+            return
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid payload"})
+            return
+        if clean == "/api/push/subscribe":
+            add_sub(data)
+        else:
+            remove_sub(data.get("endpoint", "") if isinstance(data, dict) else "")
+        self._send_json(HTTPStatus.OK, {"ok": True})
 
     def do_HEAD(self):
         if self.path.split("?")[0].startswith("/calendar/"):
@@ -620,6 +787,10 @@ def main():
         ok = sync_gcal(verbose=True)
         sys.exit(0 if ok else 1)
 
+    # Génère les clés VAPID (pour les notifications push) puis quitte.
+    if "--gen-vapid" in sys.argv:
+        sys.exit(0 if gen_vapid() else 1)
+
     if GCAL["enabled"]:
         threading.Thread(target=gcal_loop, daemon=True).start()
         print(
@@ -630,15 +801,24 @@ def main():
     else:
         print("[agenda] import désactivé (définir GCAL_ICS_URL pour l'activer)")
 
-    if REMINDER["enabled"]:
-        threading.Thread(target=reminder_loop, daemon=True).start()
-        print(
-            "[rappel] activé — envoi quotidien vers {} à {}h".format(
-                REMINDER["to"], REMINDER["hour"]
-            )
-        )
+    push_on = push_enabled()
+    if push_on:
+        print("[push] activé (clé publique OK)")
+    elif os.path.exists(VAPID_PEM_FILE):
+        print("[push] clés présentes mais 'pywebpush' introuvable — installe pywebpush")
     else:
-        print("[rappel] désactivé (définir SMTP_HOST et REMINDER_TO pour l'activer)")
+        print("[push] désactivé (générer les clés : python3 server.py --gen-vapid)")
+
+    if REMINDER["enabled"] or push_on:
+        threading.Thread(target=reminder_loop, daemon=True).start()
+        chans = []
+        if REMINDER["enabled"]:
+            chans.append("e-mail → " + REMINDER["to"])
+        if push_on:
+            chans.append("push")
+        print("[rappel] activé à {}h ({})".format(REMINDER["hour"], ", ".join(chans)))
+    else:
+        print("[rappel] désactivé (SMTP_HOST/REMINDER_TO ou clés push requis)")
 
     ics_base = REMINDER["url"] or "http://{}:{}".format(BIND, PORT)
     print("[agenda] flux ICS : {}/calendar/{}.ics".format(ics_base, ICS_TOKEN))

@@ -1478,10 +1478,96 @@
     }
   });
 
+  // ---------- Notifications push ----------
+  const pushBtn = document.getElementById("push-btn");
+  const pushSupported =
+    "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+  function urlB64ToUint8(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const b64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(b64);
+    return Uint8Array.from(Array.prototype.map.call(raw, (c) => c.charCodeAt(0)));
+  }
+
+  async function refreshPushBtn() {
+    if (!pushSupported || !pushBtn) return;
+    let data = null;
+    try {
+      const r = await fetch("/api/push/key");
+      data = r.ok ? await r.json() : null;
+    } catch (e) {
+      data = null;
+    }
+    if (!data || !data.publicKey) {
+      pushBtn.hidden = true; // push désactivé côté serveur
+      return;
+    }
+    pushBtn.hidden = false;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      pushBtn.textContent = sub ? "🔔 Notifications activées" : "🔔 Activer les notifications";
+      pushBtn.dataset.on = sub ? "1" : "0";
+    } catch (e) {
+      pushBtn.textContent = "🔔 Activer les notifications";
+    }
+  }
+
+  async function togglePush() {
+    if (!pushSupported) return;
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      try {
+        await fetch("/api/push/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: existing.endpoint }),
+        });
+        await existing.unsubscribe();
+      } catch (e) {
+        /* ignore */
+      }
+      notify("Notifications désactivées");
+      refreshPushBtn();
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      notify("Permission refusée");
+      return;
+    }
+    try {
+      const r = await fetch("/api/push/key");
+      const data = r.ok ? await r.json() : null;
+      if (!data || !data.publicKey) throw new Error("push indisponible");
+      const publicKey = data.publicKey;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8(publicKey),
+      });
+      await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub),
+      });
+      notify("🔔 Notifications activées");
+    } catch (e) {
+      notify("Échec de l'activation");
+    }
+    refreshPushBtn();
+  }
+
+  if (pushBtn) pushBtn.addEventListener("click", togglePush);
+
   // ---------- Service worker (PWA) ----------
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
+      navigator.serviceWorker
+        .register("sw.js")
+        .then(() => refreshPushBtn())
+        .catch(() => {});
     });
   }
 

@@ -2,7 +2,7 @@
    - Précache la « coquille » de l'appli pour un fonctionnement hors-ligne.
    - Ne met JAMAIS en cache l'API /api/state (toujours réseau).
    Incrémente CACHE_VERSION à chaque changement de fichier statique. */
-const CACHE_VERSION = "eisenhower-v7";
+const CACHE_VERSION = "eisenhower-v8";
 const SHELL = [
   "./",
   "./index.html",
@@ -61,5 +61,38 @@ self.addEventListener("fetch", (event) => {
               : Response.error())
         )
       )
+  );
+});
+
+// ---------- Notifications push ----------
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "Matrice d'Eisenhower";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || "",
+      icon: "./icon-192.png",
+      badge: "./icon-192.png",
+      data: { url: data.url || "./" },
+      tag: "eisenhower-rappel",
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "./";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) return c.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })
   );
 });
