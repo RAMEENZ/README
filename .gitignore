@@ -30,3 +30,15 @@
 *.exe
 *.out
 *.app
+
+# --- Application web ---
+# Données de l'organiseur générées à l'exécution par le backend
+data/
+# Caches / dépendances
+__pycache__/
+*.tmp
+node_modules/
+.venv/
+venv/
+# Secrets éventuels hors data/
+*.pem

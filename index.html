@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="Organiseur de tâches basé sur la matrice d'Eisenhower : priorisez selon l'urgence et l'importance." />
+  <title>Matrice d'Eisenhower — Organiseur de tâches</title>
+
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Eisenhower" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)" />
+</head>
+<body>
+  <div class="page">
+    <header class="app-header">
+      <div class="app-header__titles">
+        <h1 class="app-title">Matrice d'Eisenhower</h1>
+        <p class="app-subtitle">Priorisez vos tâches selon leur urgence et leur importance.</p>
+      </div>
+      <button type="button" class="icon-btn" id="theme-toggle" title="Changer de thème" aria-label="Changer de thème">
+        <span id="theme-icon" aria-hidden="true">🌓</span>
+      </button>
+    </header>
+
+    <section class="panel">
+      <form id="add-form" class="add-form" autocomplete="off">
+        <input
+          id="task-input"
+          class="add-form__input"
+          type="text"
+          placeholder="Nouvelle tâche…"
+          aria-label="Intitulé de la tâche"
+          maxlength="280"
+          required
+        />
+        <input
+          id="task-due"
+          class="add-form__date"
+          type="date"
+          aria-label="Date d'échéance (optionnelle)"
+          title="Date d'échéance (optionnelle)"
+        />
+        <select id="quadrant-select" class="add-form__select" aria-label="Quadrant de destination">
+          <option value="q1">🔥 Urgent &amp; Important</option>
+          <option value="q2">📅 Important, pas urgent</option>
+          <option value="q3">🤝 Urgent, pas important</option>
+          <option value="q4">🗑️ Ni urgent ni important</option>
+        </select>
+        <button type="submit" class="btn btn--primary">Ajouter</button>
+      </form>
+
+      <div class="controls">
+        <div class="controls__search">
+          <span class="controls__search-icon" aria-hidden="true">🔎</span>
+          <input
+            id="search-input"
+            class="controls__search-field"
+            type="search"
+            placeholder="Rechercher…  ( / )"
+            aria-label="Rechercher une tâche"
+          />
+        </div>
+        <label class="controls__sort">
+          <span>Trier&nbsp;:</span>
+          <select id="sort-select" aria-label="Trier les tâches">
+            <option value="manual">Manuel</option>
+            <option value="due">Échéance</option>
+            <option value="created">Récent</option>
+            <option value="alpha">A → Z</option>
+          </select>
+        </label>
+        <button type="button" class="tag-filter" id="tag-filter" hidden></button>
+      </div>
+    </section>
+
+    <div class="matrix-area">
+      <div class="axis axis--x" aria-hidden="true">
+        <span>Urgent</span>
+        <span>Pas urgent</span>
+      </div>
+      <div class="axis axis--y" aria-hidden="true">
+        <span>Important</span>
+        <span>Pas important</span>
+      </div>
+      <main class="matrix" id="matrix" aria-label="Matrice d'Eisenhower">
+        <!-- Les quadrants sont générés par app.js -->
+      </main>
+    </div>
+
+    <footer class="app-footer">
+      <div class="app-footer__info">
+        <div class="stats" id="stats" aria-live="polite"></div>
+        <span class="sync-status" id="sync-status" title="État de la synchronisation"></span>
+      </div>
+      <div class="app-footer__actions">
+        <button type="button" class="btn btn--ghost" id="push-btn" hidden></button>
+        <button type="button" class="btn btn--ghost" id="bilan-btn">📊 Bilan</button>
+        <button type="button" class="btn btn--ghost" id="export-btn">Exporter</button>
+        <button type="button" class="btn btn--ghost" id="import-btn">Importer</button>
+        <button type="button" class="btn btn--ghost" id="clear-done">Effacer les terminées</button>
+      </div>
+    </footer>
+  </div>
+
+  <input type="file" id="import-file" accept="application/json,.json" hidden />
+  <div id="drag-ghost" class="drag-ghost" aria-hidden="true"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="bilan" class="modal" hidden>
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__card" role="dialog" aria-modal="true" aria-label="Bilan de la semaine">
+      <div class="modal__head">
+        <h2 class="modal__title">📊 Bilan de la semaine</h2>
+        <button type="button" class="modal__close" id="bilan-close" aria-label="Fermer">&times;</button>
+      </div>
+      <div class="modal__body" id="bilan-body"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
